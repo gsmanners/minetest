@@ -465,6 +465,7 @@ set(minetest_SRCS
 	guiFileSelectMenu.cpp
 	convert_json.cpp
 	drawscene.cpp
+	gsmapper.cpp
 	${minetest_SCRIPT_SRCS}
 )
 list(SORT minetest_SRCS)
