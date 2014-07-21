@@ -670,6 +670,7 @@ GenericCAO::~GenericCAO()
 	{
 		m_env->removePlayerName(m_name.c_str());
 	}
+	removeFromScene(true);
 }
 
 core::aabbox3d<f32>* GenericCAO::getSelectionBox()
@@ -735,7 +736,8 @@ ClientActiveObject* GenericCAO::getParent()
 
 void GenericCAO::removeFromScene(bool permanent)
 {
-	if(permanent) // Should be true when removing the object permanently and false when refreshing (eg: updating visuals)
+	// Should be true when removing the object permanently and false when refreshing (eg: updating visuals)
+	if((m_env != NULL) && (permanent)) 
 	{
 		for(std::vector<u16>::iterator ci = m_children.begin();
 						ci != m_children.end(); ci++)
@@ -746,6 +748,12 @@ void GenericCAO::removeFromScene(bool permanent)
 		}
 
 		m_env->m_attachements[getId()] = 0;
+		
+		LocalPlayer* player = m_env->getLocalPlayer();
+		if (this == player->parent) {
+			player->parent = NULL;
+			player->isAttached = false;
+		}
 	}
 
 	if(m_meshnode)

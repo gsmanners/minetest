@@ -1473,11 +1473,11 @@ void Map::timerUpdate(float dtime, float unload_timeout,
 				v3s16 p = block->getPos();
 
 				// Save if modified
-				if(block->getModified() != MOD_STATE_CLEAN
-						&& save_before_unloading)
+				if (block->getModified() != MOD_STATE_CLEAN && save_before_unloading)
 				{
 					modprofiler.add(block->getModifiedReason(), 1);
-					saveBlock(block);
+					if (!saveBlock(block))
+						continue;
 					saved_blocks_count++;
 				}
 
@@ -2312,7 +2312,7 @@ void ServerMap::finishBlockMake(BlockMakeData *data,
 	{
 		// 70ms @cs=8
 		//TimeTaker timer("finishBlockMake() blitBackAll");
-		data->vmanip->blitBackAll(&changed_blocks);
+		data->vmanip->blitBackAll(&changed_blocks, false);
 	}
 
 	EMERGE_DBG_OUT("finishBlockMake: changed_blocks.size()=" << changed_blocks.size());
@@ -3253,25 +3253,59 @@ bool ServerMap::loadSectorFull(v2s16 p2d)
 }
 #endif
 
-void ServerMap::beginSave() {
+void ServerMap::beginSave()
+{
 	dbase->beginSave();
 }
 
-void ServerMap::endSave() {
+void ServerMap::endSave()
+{
 	dbase->endSave();
 }
 
-void ServerMap::saveBlock(MapBlock *block)
+bool ServerMap::saveBlock(MapBlock *block)
 {
-  dbase->saveBlock(block);
+	return saveBlock(block, dbase);
 }
 
-void ServerMap::loadBlock(std::string sectordir, std::string blockfile, MapSector *sector, bool save_after_load)
+bool ServerMap::saveBlock(MapBlock *block, Database *db)
+{
+	v3s16 p3d = block->getPos();
+
+	// Dummy blocks are not written
+	if (block->isDummy()) {
+		errorstream << "WARNING: saveBlock: Not writing dummy block "
+			<< PP(p3d) << std::endl;
+		return true;
+	}
+
+	// Format used for writing
+	u8 version = SER_FMT_VER_HIGHEST_WRITE;
+
+	/*
+		[0] u8 serialization version
+		[1] data
+	*/
+	std::ostringstream o(std::ios_base::binary);
+	o.write((char*) &version, 1);
+	block->serialize(o, version, true);
+
+	std::string data = o.str();
+	bool ret = db->saveBlock(p3d, data);
+	if(ret) {
+		// We just wrote it to the disk so clear modified flag
+		block->resetModified();
+	}
+	return ret;
+}
+
+void ServerMap::loadBlock(std::string sectordir, std::string blockfile,
+		MapSector *sector, bool save_after_load)
 {
 	DSTACK(__FUNCTION_NAME);
 
 	std::string fullpath = sectordir+DIR_DELIM+blockfile;
-	try{
+	try {
 
 		std::ifstream is(fullpath.c_str(), std::ios_base::binary);
 		if(is.good() == false)
@@ -3417,10 +3451,13 @@ MapBlock* ServerMap::loadBlock(v3s16 blockpos)
 
 	v2s16 p2d(blockpos.X, blockpos.Z);
 
-	MapBlock *ret;
+	std::string ret;
 
 	ret = dbase->loadBlock(blockpos);
-	if (ret) return (ret);
+	if (ret != "") {
+		loadBlock(&ret, blockpos, createSector(p2d), false);
+		return getBlockNoCreateNoEx(blockpos);
+	}
 	// Not found in database, try the files
 
 	// The directory layout we're going to load from.
@@ -3583,7 +3620,8 @@ void ManualMapVoxelManipulator::initialEmerge(v3s16 blockpos_min,
 }
 
 void ManualMapVoxelManipulator::blitBackAll(
-		std::map<v3s16, MapBlock*> * modified_blocks)
+		std::map<v3s16, MapBlock*> *modified_blocks,
+		bool overwrite_generated)
 {
 	if(m_area.getExtent() == v3s16(0,0,0))
 		return;
@@ -3598,10 +3636,9 @@ void ManualMapVoxelManipulator::blitBackAll(
 		v3s16 p = i->first;
 		MapBlock *block = m_map->getBlockNoCreateNoEx(p);
 		bool existed = !(i->second & VMANIP_BLOCK_DATA_INEXIST);
-		if((existed == false) || (block == NULL))
-		{
+		if ((existed == false) || (block == NULL) ||
+			(overwrite_generated == false && block->isGenerated() == true))
 			continue;
-		}
 
 		block->copyFrom(*this);
 

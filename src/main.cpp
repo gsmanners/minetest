@@ -381,8 +381,6 @@ public:
 #endif
 
 private:
-	IrrlichtDevice *m_device;
-
 	// The current state of keys
 	KeyList keyIsDown;
 	// Whether a key has been pressed or not
@@ -1298,9 +1296,13 @@ int main(int argc, char *argv[])
 			new_db->beginSave();
 			for (std::list<v3s16>::iterator i = blocks.begin(); i != blocks.end(); i++) {
 				MapBlock *block = old_map.loadBlock(*i);
-				new_db->saveBlock(block);
-				MapSector *sector = old_map.getSectorNoGenerate(v2s16(i->X, i->Z));
-				sector->deleteBlock(block);
+				if (!block) {
+					errorstream << "Failed to load block " << PP(*i) << ", skipping it.";
+				} else {
+					old_map.saveBlock(block, new_db);
+					MapSector *sector = old_map.getSectorNoGenerate(v2s16(i->X, i->Z));
+					sector->deleteBlock(block);
+				}
 				++count;
 				if (count % 500 == 0)
 					actionstream << "Migrated " << count << " blocks "
@@ -1949,4 +1951,3 @@ int main(int argc, char *argv[])
 }
 
 //END
-
